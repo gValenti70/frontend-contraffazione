@@ -25,7 +25,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]
     ];
 
-    // CHIAMATA CURL VERSO API SU RENDER
     $ch = curl_init('https://api-contraffazione.onrender.com/analizza-oggetto');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
@@ -43,12 +42,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $risultato = "<div class='alert alert-warning mt-4'>Risposta malformata:<pre>$response</pre></div>";
         } else {
             $percentuale = intval($json['percentuale']);
-            $badge_class = $percentuale < 30 ? 'bg-success' : ($percentuale < 70 ? 'bg-warning' : 'bg-danger');
-            $percentuale_html = "<div class='text-center mb-3'><span class='badge $badge_class fs-4'>Contraffazione stimata: $percentuale%</span></div>";
-            $motivi = "<ul>";
-            foreach ($json['motivazioni'] as $m) $motivi .= "<li>" . htmlentities($m) . "</li>";
-            $motivi .= "</ul>";
-            $risultato = "<div class='alert alert-success mt-4'>$percentuale_html<h5 class='mb-2'>Motivazioni:</h5>$motivi</div>";
+            $badge_class = $percentuale < 30 ? 'bg-success' : ($percentuale < 70 ? 'bg-warning text-dark' : 'bg-danger');
+
+            $risultato = "
+            <div class='card mt-4 shadow border-0'>
+              <div class='card-body text-center'>
+                <h5 class='card-title mb-3'>Risultato Analisi</h5>
+                <h1 class='display-4 fw-bold mb-3'>
+                  <span class='badge $badge_class'>$percentuale%</span>
+                </h1>
+                <h6 class='mb-3 text-muted'>Probabilità stimata di contraffazione</h6>
+                <h6 class='text-start fw-semibold'>Motivazioni:</h6>
+                <ul class='text-start mb-0'>";
+            foreach ($json['motivazioni'] as $m) {
+                $risultato .= "<li>" . htmlentities($m) . "</li>";
+            }
+            $risultato .= "</ul>
+              </div>
+            </div>";
         }
     }
     curl_close($ch);
