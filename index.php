@@ -5,6 +5,12 @@
   <title>Analisi Contraffazione</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .result-card.success { background: #d4edda; border-left: 6px solid #28a745; }
+    .result-card.warning { background: #fff3cd; border-left: 6px solid #ffc107; }
+    .result-card.danger { background: #f8d7da; border-left: 6px solid #dc3545; }
+    .emoji { font-size: 2rem; line-height: 1; }
+  </style>
 </head>
 <body class="bg-light">
 
@@ -37,24 +43,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $risultato = "<div class='alert alert-danger mt-4'>Errore nella richiesta: " . curl_error($ch) . "</div>";
     } else {
         $output = json_decode($response, true);
-        $json = json_decode($output['analisi'] ?? '{}', true);
-        if (!$json || !isset($json['percentuale'])) {
+        $percentuale = $output['percentuale'] ?? null;
+        $motivazioni = $output['motivazioni'] ?? [];
+
+        if ($percentuale === null) {
             $risultato = "<div class='alert alert-warning mt-4'>Risposta malformata:<pre>$response</pre></div>";
         } else {
-            $percentuale = intval($json['percentuale']);
-            $badge_class = $percentuale < 30 ? 'bg-success' : ($percentuale < 70 ? 'bg-warning text-dark' : 'bg-danger');
+            $percentuale = intval($percentuale);
+            if ($percentuale < 30) {
+                $emoji = "✅";
+                $style = "success";
+                $messaggio = "Probabilità molto bassa di contraffazione";
+            } elseif ($percentuale < 70) {
+                $emoji = "⚠️";
+                $style = "warning";
+                $messaggio = "Possibile contraffazione: da approfondire";
+            } else {
+                $emoji = "❌";
+                $style = "danger";
+                $messaggio = "Alta probabilità di contraffazione!";
+            }
 
             $risultato = "
-            <div class='card mt-4 shadow border-0'>
-              <div class='card-body text-center'>
-                <h5 class='card-title mb-3'>Risultato Analisi</h5>
-                <h1 class='display-4 fw-bold mb-3'>
-                  <span class='badge $badge_class'>$percentuale%</span>
-                </h1>
-                <h6 class='mb-3 text-muted'>Probabilità stimata di contraffazione</h6>
-                <h6 class='text-start fw-semibold'>Motivazioni:</h6>
-                <ul class='text-start mb-0'>";
-            foreach ($json['motivazioni'] as $m) {
+            <div class='card result-card $style mt-4 shadow'>
+              <div class='card-body'>
+                <div class='d-flex align-items-center mb-3'>
+                  <span class='emoji me-3'>$emoji</span>
+                  <div>
+                    <h5 class='card-title mb-1 fw-bold'>Probabilità di Contraffazione</h5>
+                    <h1 class='display-6 fw-bold mb-0'>$percentuale%</h1>
+                  </div>
+                </div>
+                <p class='mb-3'>$messaggio</p>
+                <h6 class='fw-semibold'>Motivazioni:</h6>
+                <ul>";
+            foreach ($motivazioni as $m) {
                 $risultato .= "<li>" . htmlentities($m) . "</li>";
             }
             $risultato .= "</ul>
