@@ -6,11 +6,39 @@ $percentuali = $_SESSION['percentuali'] ?? [];
 $risposta_api = $_SESSION['risposta_api'] ?? [];
 $errore_api = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto'])) {
-    function toBase64($file) {
-        return base64_encode(file_get_contents($file));
+function resizeImage($file, $max_width = 1024) {
+    $info = getimagesize($file);
+    $src = null;
+
+    switch ($info['mime']) {
+        case 'image/jpeg': $src = imagecreatefromjpeg($file); break;
+        case 'image/png':  $src = imagecreatefrompng($file); break;
+        default: return $file; // Non modificabile
     }
 
+    $width = $info[0];
+    $height = $info[1];
+
+    if ($width <= $max_width) return $file; // Già piccola
+
+    $new_width = $max_width;
+    $new_height = intval($height * ($max_width / $width));
+
+    $dst = imagecreatetruecolor($new_width, $new_height);
+    imagecopyresampled($dst, $src, 0, 0, 0, 0, $new_width, $new_height, $width, $height);
+
+    $tmp = tempnam(sys_get_temp_dir(), 'resized_') . '.jpg';
+    imagejpeg($dst, $tmp, 80); // qualità 80%
+    imagedestroy($src);
+    imagedestroy($dst);
+    return $tmp;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto'])) {
+    function toBase64($file) {
+        $resized = resizeImage($file);
+        return base64_encode(file_get_contents($resized));
+    }
     $immagini_base64[] = toBase64($_FILES['foto']['tmp_name']);
     $_SESSION['immagini'] = $immagini_base64;
 
