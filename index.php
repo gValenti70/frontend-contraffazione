@@ -64,8 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto'])) {
 if (isset($_REQUEST['reset'])) {
     session_destroy();
     setcookie(session_name(), '', 0, '/');
-    session_regenerate_id(true);
-    header("Location: " . $_SERVER['PHP_SELF']);
     exit;
 }
 ?>
