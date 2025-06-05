@@ -6,68 +6,70 @@ $percentuali = $_SESSION['percentuali'] ?? [];
 $risposta_api = $_SESSION['risposta_api'] ?? [];
 $errore_api = null;
 
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['foto'])) {
-    function toBase64($file) {
-        return base64_encode(file_get_contents($file));
-    }
-    $immagini_base64[] = toBase64($_FILES['foto']['tmp_name']);
-    $_SESSION['immagini'] = $immagini_base64;
+    $MAX_IMAGE_SIZE = 3 * 1024 * 1024; // 3 MB
 
-    $data = [
-        'tipologia' => $_POST['tipologia'] ?? $_SESSION['tipologia'] ?? 'borsa',
-        'marca' => $_POST['marca'] ?? $_SESSION['marca'] ?? 'gucci',
-        'immagini' => $immagini_base64
-    ];
-    $_SESSION['tipologia'] = $data['tipologia'];
-    $_SESSION['marca'] = $data['marca'];
-
-    $ch = curl_init('https://api-contraffazione-iter.onrender.com/analizza-oggetto');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-    $response = curl_exec($ch);
-    $curl_error = curl_error($ch);
-    curl_close($ch);
-    
-    $response = trim($response);
-    //file_put_contents("debug_api_response.txt", "RISPOSTA:\n$response\nERRORE CURL:\n$curl_error\n", FILE_APPEND);
-    
-
-    $response = trim($response);
-    $json = json_decode($response, true);
-
-    if (!is_array($json)) {
-        $errore_api = "⚠️ Errore di parsing JSON.<br><pre>" . htmlentities($response) . "</pre>";
-    } elseif (!isset($json['percentuale'])) {
-        $errore_api = "⚠️ Campo mancante: <code>percentuale</code><br><pre>" . htmlentities($response) . "</pre>";
-    } elseif (!isset($json['richiedi_altra_foto'])) {
-        $errore_api = "⚠️ Campo mancante: <code>richiedi_altra_foto</code><br><pre>" . htmlentities($response) . "</pre>";
+    if ($_FILES['foto']['size'] > $MAX_IMAGE_SIZE) {
+        $errore_api = "⚠️ L'immagine è troppo grande (" . round($_FILES['foto']['size'] / 1024 / 1024, 2) . " MB). Carica una foto più leggera (massimo 3 MB).";
     } else {
-        $_SESSION['risposta_api'] = $json;
-        $_SESSION['percentuali'][] = $json['percentuale'];
-
-        if ($json['richiedi_altra_foto'] && count($_SESSION['immagini']) < 3) {
-            $_SESSION['step'] = $step + 1;        
-            $_SESSION['ultimo_messaggio'] = $json['dettaglio_richiesto'] ?? '';
-        } else {
-            $_SESSION['step'] = 99;
+        function toBase64($file) {
+            return base64_encode(file_get_contents($file));
         }
 
-        header("Location: " . $_SERVER['PHP_SELF']);
-        exit;
+        $immagini_base64[] = toBase64($_FILES['foto']['tmp_name']);
+        $_SESSION['immagini'] = $immagini_base64;
+
+        $data = [
+            'tipologia' => $_POST['tipologia'] ?? $_SESSION['tipologia'] ?? 'borsa',
+            'immagini' => $immagini_base64
+        ];
+        $_SESSION['tipologia'] = $data['tipologia'];
+
+        $ch = curl_init('https://api-contraffazione-iter.onrender.com/analizza-oggetto');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        $response = trim($response);
+        $json = json_decode($response, true);
+
+        if (!is_array($json)) {
+            $errore_api = "⚠️ Errore di parsing JSON.<br><pre>" . htmlentities($response ?: '[RISPOSTA VUOTA]') . "</pre>";
+        } elseif (!isset($json['percentuale'], $json['motivazione'], $json['richiedi_altra_foto'], $json['dettaglio_richiesto'], $json['marca_stimata'])) {
+            $errore_api = "⚠️ Risposta incompleta dal server:<br><pre>" . htmlentities($response) . "</pre>";
+        } else {
+            $_SESSION['risposta_api'] = $json;
+            $_SESSION['percentuali'][] = $json['percentuale'];
+            $totale_foto = count($_SESSION['immagini']);
+
+            if ($totale_foto >= 3) {
+                $_SESSION['step'] = 99;
+            } elseif ($json['richiedi_altra_foto']) {
+                $_SESSION['step'] = $step + 1;
+                $_SESSION['ultimo_messaggio'] = $json['dettaglio_richiesto'] ?? '';
+            } else {
+                $_SESSION['step'] = 99;
+            }
+            
+
+            header("Location: " . $_SERVER['PHP_SELF']);
+            exit;
+        }
     }
 }
 
 if (isset($_REQUEST['reset'])) {
     session_destroy();
     setcookie(session_name(), '', 0, '/');
+    session_regenerate_id(true);
+    header("Location: " . $_SERVER['PHP_SELF']);
     exit;
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="it">
 <head>
@@ -88,12 +90,8 @@ if (isset($_REQUEST['reset'])) {
             <form method="POST" enctype="multipart/form-data">
               <?php if ($step === 1): ?>
                 <div class="mb-3">
-                  <label class="form-label">Tipologia</label>
-                  <input type="text" class="form-control" name="tipologia" required>
-                </div>
-                <div class="mb-3">
-                  <label class="form-label">Marca</label>
-                  <input type="text" class="form-control" name="marca" required>
+                  <label class="form-label">Tipologia (opzionale)</label>
+                  <input type="text" class="form-control" name="tipologia" placeholder="borsa, scarpa, ecc.">
                 </div>
               <?php endif; ?>
 
@@ -140,38 +138,37 @@ if (isset($_REQUEST['reset'])) {
             </form>
 
             <?php if ($step === 99): ?>
-                <?php
-                    $risposta_api = $_SESSION['risposta_api'] ?? [];
-                    $percentuale = $risposta_api['percentuale'] ?? 'N.D.';
-                    $motivazione = htmlentities($risposta_api['motivazione'] ?? 'Motivazione non disponibile.');
+              <?php
+                $risposta_api = $_SESSION['risposta_api'] ?? [];
+                $percentuale = $risposta_api['percentuale'] ?? 'N.D.';
+                $motivazione = htmlentities($risposta_api['motivazione'] ?? 'Motivazione non disponibile.');
+                $marca_stimata = trim($risposta_api['marca_stimata'] ?? '');
 
-                    if ($percentuale === -1 || $percentuale === '-1') {
-                        $icona = '❓';
-                        $badge = 'bg-secondary';
-                        $percentuale_label = "Non determinabile";
-                    } else {
-                        $valide = array_filter($_SESSION['percentuali'], fn($p) => is_numeric($p));
-                        $percentuale = intval(round(array_sum($valide) / count($valide)));
-                        $icona = $percentuale < 30 ? '🔒' : ($percentuale < 70 ? '⚠️' : '❌');
-                        $badge = $percentuale < 30 ? 'bg-success' : ($percentuale < 70 ? 'bg-warning text-dark' : 'bg-danger');
-                        $percentuale_label = $percentuale . '%';
-                    }
-                ?>
-                <div class='card mt-4 shadow'>
-                    <div class='card-body text-center'>
-                    <h5 class='card-title'>Risultato Finale</h5>
-                    <h1 class='display-4 mb-2'><?= "$icona <span class='badge $badge'>$percentuale_label</span>" ?></h1>
-                    <p class='fw-bold text-muted'>Probabilità complessiva stimata di contraffazione</p>
-                    <p class='text-start'><strong>Motivo:</strong> <?= $motivazione ?></p>
-                    <?php if ($risposta_api['richiedi_altra_foto']): ?>
-                        <p class='text-muted small mt-2'>⚠️ Ulteriori dettagli erano consigliati, ma è stata fornita una valutazione con le immagini disponibili.</p>
-                    <?php endif; ?>
-
-                    </div>
+                if ($percentuale === -1 || $percentuale === '-1') {
+                    $icona = '❓';
+                    $badge = 'bg-secondary';
+                    $percentuale_label = "Non determinabile";
+                } else {
+                    $valide = array_filter($_SESSION['percentuali'], fn($p) => is_numeric($p));
+                    $percentuale = intval(round(array_sum($valide) / count($valide)));
+                    $icona = $percentuale < 30 ? '🔒' : ($percentuale < 70 ? '⚠️' : '❌');
+                    $badge = $percentuale < 30 ? 'bg-success' : ($percentuale < 70 ? 'bg-warning text-dark' : 'bg-danger');
+                    $percentuale_label = $percentuale . '%';
+                }
+              ?>
+              <div class='card mt-4 shadow'>
+                <div class='card-body text-center'>
+                  <h5 class='card-title'>Risultato Finale</h5>
+                  <h1 class='display-4 mb-2'><?= "$icona <span class='badge $badge'>$percentuale_label</span>" ?></h1>
+                  <p class='fw-bold text-muted'>Probabilità complessiva stimata di contraffazione</p>
+                  <?php if ($marca_stimata !== ''): ?>
+                    <p class='text-start'><strong>Marca stimata:</strong> <?= htmlentities($marca_stimata) ?></p>
+                  <?php endif; ?>
+                  <p class='text-start'><strong>Motivo:</strong> <?= $motivazione ?></p>
                 </div>
-                <pre class="bg-dark text-white mt-3 p-3 rounded small"><code><?= htmlentities(json_encode($risposta_api, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) ?></code></pre>
-                <?php endif; ?>
-
+              </div>
+              <pre class="bg-dark text-white mt-3 p-3 rounded small"><code><?= htmlentities(json_encode($risposta_api, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) ?></code></pre>
+            <?php endif; ?>
 
             <form method="POST" class="mt-3">
               <button type="submit" name="reset" class="btn btn-secondary w-100">Nuovo Oggetto</button>
@@ -184,7 +181,6 @@ if (isset($_REQUEST['reset'])) {
               <button type="submit" name="reset" class="btn btn-secondary mt-3 w-100">Nuovo Oggetto</button>
             </form>
           <?php endif; ?>
-
         </div>
       </div>
     </div>
